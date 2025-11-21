@@ -39,37 +39,56 @@ st.sidebar.header("📋 Tahmin Parametreleri")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Büyüme Hedefi")
-growth_type = st.sidebar.radio(
-    "Büyüme Tipi",
-    ["Aylık", "Yıllık"],
+growth_input_type = st.sidebar.radio(
+    "Hedef Giriş Tipi",
+    ["Tüm Yıl İçin Tek Hedef", "Ay Bazında Hedef"],
     index=0,
-    help="Aylık veya yıllık bazda büyüme hedefi"
+    help="Tek hedef veya her ay için ayrı hedef"
 )
 
-if growth_type == "Aylık":
-    monthly_growth = st.sidebar.slider(
-        "Aylık Satış Büyüme Hedefi (%)",
-        min_value=-5.0,
-        max_value=10.0,
-        value=1.2,
-        step=0.1,
-        help="Her ay bir önceki aya göre % büyüme (compound)"
-    )
-    # Aylık'tan yıllık'a çevir: (1 + monthly)^12 - 1
-    growth_param = (1 + monthly_growth/100)**12 - 1
-    st.sidebar.info(f"📊 Yıllık Eşdeğer: %{growth_param*100:.1f}")
-else:
-    yearly_growth = st.sidebar.slider(
+monthly_growth_targets = {}
+
+if growth_input_type == "Tüm Yıl İçin Tek Hedef":
+    growth_param = st.sidebar.slider(
         "Yıllık Satış Büyüme Hedefi (%)",
         min_value=-20.0,
         max_value=50.0,
         value=15.0,
         step=1.0,
         help="2026 yılı için hedeflenen satış büyümesi"
-    )
-    growth_param = yearly_growth / 100
-    monthly_equiv = ((1 + growth_param)**(1/12) - 1) * 100
-    st.sidebar.info(f"📊 Aylık Eşdeğer: %{monthly_equiv:.2f}")
+    ) / 100
+    
+    # Tüm aylar için aynı hedef
+    for month in range(1, 13):
+        monthly_growth_targets[month] = growth_param
+    
+else:
+    st.sidebar.markdown("**Her Ay İçin Büyüme Hedefi (%):**")
+    st.sidebar.caption("↓ Aşağı kaydırarak tüm ayları görebilirsiniz")
+    
+    # Ay isimleri
+    month_names = {
+        1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan",
+        5: "Mayıs", 6: "Haziran", 7: "Temmuz", 8: "Ağustos",
+        9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
+    }
+    
+    # Her ay için slider
+    for month in range(1, 13):
+        monthly_growth_targets[month] = st.sidebar.slider(
+            f"{month_names[month]} ({month})",
+            min_value=-20.0,
+            max_value=50.0,
+            value=15.0,
+            step=1.0,
+            key=f"month_{month}"
+        ) / 100
+    
+    # Ortalama göster
+    avg_monthly = sum(monthly_growth_targets.values()) / 12
+    st.sidebar.info(f"📊 Ortalama Hedef: %{avg_monthly*100:.1f}")
+    
+    growth_param = avg_monthly  # Genel hesaplamalar için ortalama kullan
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📈 Karlılık Hedefi")
