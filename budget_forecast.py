@@ -147,7 +147,7 @@ class BudgetForecaster:
         
         return momentum[['MainGroup', 'MomentumScore']]
     
-    def forecast_2026(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None):
+    def forecast_2026(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None, stock_change_pct=None):
         """
         2026 tahminini yap
         
@@ -155,9 +155,10 @@ class BudgetForecaster:
         -----------
         growth_param: Genel büyüme hedefi (diğer hedefler yoksa kullanılır)
         margin_improvement: Brüt marj iyileşme hedefi (örn: 0.02 = 2 puan)
-        stock_ratio_target: Hedef stok/SMM oranı (örn: 0.8)
+        stock_ratio_target: Hedef stok/SMM oranı (örn: 0.8) - stock_change_pct None ise
         monthly_growth_targets: Dict {month: growth_rate} - Her ay için özel hedef
         maingroup_growth_targets: Dict {maingroup: growth_rate} - Her ana grup için özel hedef
+        stock_change_pct: Stok tutar değişim yüzdesi (örn: -0.05 = %5 azalış)
         """
         
         # Mevsimsellik hesapla
@@ -209,8 +210,16 @@ class BudgetForecaster:
         forecast['GrossProfit_2026'] = forecast['Sales_2026'] * forecast['GrossMargin%_2026']
         forecast['COGS_2026'] = forecast['Sales_2026'] - forecast['GrossProfit_2026']
         
-        # Stok
-        forecast['Stock_2026'] = forecast['COGS_2026'] * stock_ratio_target
+        # STOK HESAPLAMA - İKİ YÖNTEM:
+        if stock_change_pct is not None:
+            # Yöntem 1: TUTAR BAZLI DEĞİŞİM
+            # Her ana grup/ay için 2025 stok tutarını % değişim ile çarp
+            # Örnek: %5 azalış (-0.05) → her grubun stoğu %5 azalır
+            forecast['Stock_2026'] = forecast['Stock'] * (1 + stock_change_pct)
+        else:
+            # Yöntem 2: ORAN BAZLI HEDEF
+            # 2026 COGS × hedef oran
+            forecast['Stock_2026'] = forecast['COGS_2026'] * stock_ratio_target
         
         # Sonuç datasını hazırla
         result = forecast[['Month', 'MainGroup', 'Sales_2026', 'GrossProfit_2026', 
@@ -228,10 +237,10 @@ class BudgetForecaster:
         
         return result
     
-    def get_full_data_with_forecast(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None):
+    def get_full_data_with_forecast(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None, stock_change_pct=None):
         """2024, 2025 ve 2026 tahminini birleştir"""
         
-        forecast_2026 = self.forecast_2026(growth_param, margin_improvement, stock_ratio_target, monthly_growth_targets, maingroup_growth_targets)
+        forecast_2026 = self.forecast_2026(growth_param, margin_improvement, stock_ratio_target, monthly_growth_targets, maingroup_growth_targets, stock_change_pct)
         
         # 2024-2025 verisini düzenle
         historical = self.data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 
@@ -273,3 +282,4 @@ class BudgetForecaster:
             }
         
         return summary
+    
