@@ -243,19 +243,33 @@ class BudgetForecaster:
         return full_data
     
     def get_summary_stats(self, data):
-        """Özet istatistikler"""
+        """Özet istatistikler - Haftalık normalize edilmiş stok/SMM oranı dahil"""
         
         summary = {}
         
+        # Aylık gün sayıları
+        days_in_month = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
+                         7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+        
         for year in [2024, 2025, 2026]:
-            year_data = data[data['Year'] == year]
+            year_data = data[data['Year'] == year].copy()
+            
+            # Haftalık normalize Stok/SMM hesapla
+            # Her ay için: Stok / ((SMM/gün_sayısı)*7)
+            year_data['Days'] = year_data['Month'].map(days_in_month)
+            year_data['Stock_COGS_Weekly'] = np.where(
+                year_data['COGS'] > 0,
+                year_data['Stock'] / ((year_data['COGS'] / year_data['Days']) * 7),
+                0
+            )
             
             summary[year] = {
                 'Total_Sales': year_data['Sales'].sum(),
                 'Total_GrossProfit': year_data['GrossProfit'].sum(),
                 'Avg_GrossMargin%': (year_data['GrossProfit'].sum() / year_data['Sales'].sum() * 100) if year_data['Sales'].sum() > 0 else 0,
                 'Avg_Stock': year_data['Stock'].mean(),
-                'Avg_Stock_COGS_Ratio': year_data['Stock_COGS_Ratio'].mean()
+                'Avg_Stock_COGS_Ratio': year_data['Stock_COGS_Ratio'].mean(),
+                'Avg_Stock_COGS_Weekly': year_data['Stock_COGS_Weekly'].mean()
             }
         
         return summary
