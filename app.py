@@ -234,10 +234,12 @@ with st.spinner('Tahmin hesaplanıyor...'):
         )
     
     summary = forecaster.get_summary_stats(full_data)
+    quality_metrics = forecaster.get_forecast_quality_metrics(full_data)
 
 # ANA METRİKLER
 st.markdown("## 📈 Özet Metrikler")
 
+# İLK SATIR - Ana Metrikler
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -297,6 +299,73 @@ with col4:
             delta=f"{weekly_change:+.2f} hafta vs 2025"
         )
         st.caption("Stok / (Aylık SMM ÷ gün × 7)")
+
+# İKİNCİ SATIR - Tahmin Kalite Metrikleri
+st.markdown("### 🎯 Tahmin Güvenilirlik Metrikleri")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    if quality_metrics['r2_score'] is not None:
+        r2_pct = quality_metrics['r2_score'] * 100
+        
+        # Renk belirleme
+        if r2_pct > 80:
+            delta_color = "normal"
+        elif r2_pct > 60:
+            delta_color = "off"
+        else:
+            delta_color = "inverse"
+        
+        st.metric(
+            label="Model Uyum Skoru (R²)",
+            value=f"%{r2_pct:.1f}",
+            help="2024-2025 trend tutarlılığı (100'e yakın = daha güvenilir)"
+        )
+    else:
+        st.metric(label="Model Uyum Skoru", value="N/A")
+
+with col2:
+    if quality_metrics['trend_consistency'] is not None:
+        consistency_pct = quality_metrics['trend_consistency'] * 100
+        
+        st.metric(
+            label="Trend Tutarlılığı",
+            value=f"%{consistency_pct:.1f}",
+            help="Aylık büyüme oranlarının tutarlılığı (100'e yakın = daha istikrarlı)"
+        )
+    else:
+        st.metric(label="Trend Tutarlılığı", value="N/A")
+
+with col3:
+    if quality_metrics['mape'] is not None:
+        st.metric(
+            label="Ortalama Hata Oranı",
+            value=f"%{quality_metrics['mape']:.1f}",
+            help="MAPE - Düşük değer = daha doğru tahmin"
+        )
+    else:
+        st.metric(label="Ortalama Hata", value="N/A")
+
+with col4:
+    confidence = quality_metrics['confidence_level']
+    
+    # Emoji ve renk
+    if confidence == 'Yüksek':
+        emoji = "🟢"
+    elif confidence == 'Orta':
+        emoji = "🟡"
+    else:
+        emoji = "🔴"
+    
+    st.metric(
+        label="Güven Seviyesi",
+        value=f"{emoji} {confidence}",
+        help="Genel tahmin güvenilirliği"
+    )
+    
+    if quality_metrics['avg_growth_2024_2025']:
+        st.caption(f"Organik büyüme: %{quality_metrics['avg_growth_2024_2025']:.1f}")
 
 st.markdown("---")
 
@@ -619,11 +688,95 @@ with tab4:
     
     # Excel export - ham veri
     st.download_button(
-        label="📥 Excel'e Aktar (Ham Veri)",
+        label="📥 CSV İndir (Sadece Bu Ay)",
         data=comparison.to_csv(index=False).encode('utf-8'),
         file_name=f'budget_comparison_month_{selected_month}.csv',
         mime='text/csv'
     )
+    
+    # Tam Excel dosyası oluştur
+    st.markdown("---")
+    st.subheader("📊 Tam Bütçe Dosyası İndir")
+    
+    if st.button("🔄 Excel Dosyası Oluştur (Orijinal + 2026)", type="primary"):
+        with st.spinner("Excel dosyası hazırlanıyor..."):
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from io import BytesIO
+            
+            # 2026 verisi hazırla - orijinal format
+            data_2026 = full_data[full_data['Year'] == 2026].copy()
+            
+            # Orijinal Excel'deki kolon yapısına uygun hale getir
+            excel_2026 = pd.DataFrame()
+            
+            for month in range(1, 13):
+                month_data = data_2026[data_2026['Month'] == month].copy()
+                
+                if len(month_data) > 0:
+                    # Toplam satırı ekle
+                    total_row = pd.DataFrame({
+                        'Month': [f'Toplam {month}'],
+                        'MainGroup': [None],
+                        'Sales': [month_data['Sales'].sum()],
+                        'GrossProfit': [month_data['GrossProfit'].sum()],
+                        'GrossMargin%': [month_data['GrossProfit'].sum() / month_data['Sales'].sum() if month_data['Sales'].sum() > 0 else 0],
+                        'Stock': [month_data['Stock'].mean()],
+                        'COGS': [month_data['COGS'].sum()]
+                    })
+                    
+                    month_data_with_total = pd.concat([month_data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 'GrossMargin%', 'Stock', 'COGS']], total_row], ignore_index=True)
+                    excel_2026 = pd.concat([excel_2026, month_data_with_total], ignore_index=True)
+            
+            # Excel dosyasına yaz
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # 2026 sheet'i ekle
+                excel_2026.to_excel(writer, sheet_name='2026_Tahmin', index=False)
+                
+                # Worksheet'i al ve formatla
+                workbook = writer.book
+                worksheet = workbook['2026_Tahmin']
+                
+                # Header formatı
+                header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                header_font = Font(color="FFFFFF", bold=True)
+                
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center')
+                
+                # Kolon genişlikleri
+                worksheet.column_dimensions['A'].width = 12
+                worksheet.column_dimensions['B'].width = 25
+                worksheet.column_dimensions['C'].width = 18
+                worksheet.column_dimensions['D'].width = 18
+                worksheet.column_dimensions['E'].width = 15
+                worksheet.column_dimensions['F'].width = 18
+                worksheet.column_dimensions['G'].width = 18
+                
+                # Number formatları
+                for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                    # Para formatı (Sales, GrossProfit, Stock, COGS)
+                    for col_idx in [2, 3, 5, 6]:  # 0-indexed: C, D, F, G
+                        if row[col_idx].value and isinstance(row[col_idx].value, (int, float)):
+                            row[col_idx].number_format = '#,##0'
+                    
+                    # Yüzde formatı (GrossMargin%)
+                    if row[4].value and isinstance(row[4].value, (int, float)):
+                        row[4].number_format = '0.00%'
+            
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                label="📥 Bütçe Dosyası İndir (Excel)",
+                data=excel_data,
+                file_name="butce_2026_tahmin.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+            
+            st.success("✅ Excel dosyası hazır! İndir butonuna tıklayın.")
 
 # Footer
 st.markdown("---")
