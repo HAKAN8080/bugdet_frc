@@ -283,3 +283,60 @@ class BudgetForecaster:
         
         return summary
     
+    def get_forecast_quality_metrics(self, data):
+        """
+        Forecast kalite metriklerini hesapla
+        2024-2025 trendine göre 2026 tahmininin güvenilirliğini değerlendir
+        """
+        
+        # 2024 ve 2025 verilerini al
+        data_2024 = data[data['Year'] == 2024].groupby('Month')['Sales'].sum().reset_index()
+        data_2025 = data[data['Year'] == 2025].groupby('Month')['Sales'].sum().reset_index()
+        
+        # Ortak ayları bul
+        common_months = set(data_2024['Month']) & set(data_2025['Month'])
+        
+        if len(common_months) < 3:
+            # Yeterli veri yok
+            return {
+                'r2_score': None,
+                'mape': None,
+                'trend_consistency': None,
+                'confidence_level': 'Düşük'
+            }
+        
+        # Ortak aylara göre filtrele
+        sales_2024 = data_2024[data_2024['Month'].isin(common_months)].sort_values('Month')['Sales'].values
+        sales_2025 = data_2025[data_2025['Month'].isin(common_months)].sort_values('Month')['Sales'].values
+        
+        # 2024'ten 2025'e büyüme oranlarını hesapla
+        growth_rates = (sales_2025 - sales_2024) / sales_2024
+        
+        # Büyüme oranının tutarlılığı (standart sapma)
+        trend_consistency = 1 - min(np.std(growth_rates), 1.0)  # 0-1 arası normalize
+        
+        # Basit R² benzeri metrik (2024-2025 arası korelasyon)
+        if len(sales_2024) > 1:
+            correlation = np.corrcoef(sales_2024, sales_2025)[0, 1]
+            r2_score = correlation ** 2
+        else:
+            r2_score = 0.5
+        
+        # MAPE (Mean Absolute Percentage Error) - 2024'ten 2025'i tahmin edersek
+        mape = np.mean(np.abs(growth_rates)) * 100  # Yüzde olarak
+        
+        # Güven seviyesi belirleme
+        if r2_score > 0.8 and trend_consistency > 0.7:
+            confidence = 'Yüksek'
+        elif r2_score > 0.6 and trend_consistency > 0.5:
+            confidence = 'Orta'
+        else:
+            confidence = 'Düşük'
+        
+        return {
+            'r2_score': r2_score,
+            'mape': mape,
+            'trend_consistency': trend_consistency,
+            'confidence_level': confidence,
+            'avg_growth_2024_2025': np.mean(growth_rates) * 100
+        }
