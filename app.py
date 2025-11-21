@@ -38,18 +38,41 @@ st.markdown('<p class="main-header">📊 2026 Satış Bütçe Tahmini Sistemi</p
 st.sidebar.header("📋 Tahmin Parametreleri")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Büyüme Hedefi")
-growth_param = st.sidebar.slider(
-    "Yıllık Satış Büyüme Hedefi (%)",
-    min_value=-20.0,
-    max_value=50.0,
-    value=15.0,
-    step=1.0,
-    help="2026 yılı için hedeflenen satış büyümesi"
-) / 100
+st.sidebar.subheader("💰 Büyüme Hedefi")
+growth_type = st.sidebar.radio(
+    "Büyüme Tipi",
+    ["Aylık", "Yıllık"],
+    index=0,
+    help="Aylık veya yıllık bazda büyüme hedefi"
+)
+
+if growth_type == "Aylık":
+    monthly_growth = st.sidebar.slider(
+        "Aylık Satış Büyüme Hedefi (%)",
+        min_value=-5.0,
+        max_value=10.0,
+        value=1.2,
+        step=0.1,
+        help="Her ay bir önceki aya göre % büyüme (compound)"
+    )
+    # Aylık'tan yıllık'a çevir: (1 + monthly)^12 - 1
+    growth_param = (1 + monthly_growth/100)**12 - 1
+    st.sidebar.info(f"📊 Yıllık Eşdeğer: %{growth_param*100:.1f}")
+else:
+    yearly_growth = st.sidebar.slider(
+        "Yıllık Satış Büyüme Hedefi (%)",
+        min_value=-20.0,
+        max_value=50.0,
+        value=15.0,
+        step=1.0,
+        help="2026 yılı için hedeflenen satış büyümesi"
+    )
+    growth_param = yearly_growth / 100
+    monthly_equiv = ((1 + growth_param)**(1/12) - 1) * 100
+    st.sidebar.info(f"📊 Aylık Eşdeğer: %{monthly_equiv:.2f}")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Karlılık Hedefi")
+st.sidebar.subheader("📈 Karlılık Hedefi")
 margin_improvement = st.sidebar.slider(
     "Brüt Marj İyileşme Hedefi (puan)",
     min_value=-5.0,
@@ -60,15 +83,35 @@ margin_improvement = st.sidebar.slider(
 ) / 100
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Stok Hedefi")
-stock_ratio_target = st.sidebar.slider(
-    "Hedef Stok/SMM Oranı",
-    min_value=0.3,
-    max_value=2.0,
-    value=0.8,
-    step=0.1,
-    help="Stok tutarı / Satılan Malın Maliyeti oranı"
+st.sidebar.subheader("📦 Stok Hedefi")
+
+stock_param_type = st.sidebar.radio(
+    "Stok Parametresi",
+    ["Stok/SMM Oranı", "Stok Tutar Değişimi"],
+    index=0,
+    help="Stok hedefini oran veya tutar bazında belirle"
 )
+
+if stock_param_type == "Stok/SMM Oranı":
+    stock_ratio_target = st.sidebar.slider(
+        "Hedef Stok/SMM Oranı",
+        min_value=0.3,
+        max_value=2.0,
+        value=0.8,
+        step=0.1,
+        help="Stok tutarı / Satılan Malın Maliyeti oranı"
+    )
+    stock_change_pct = None
+else:
+    stock_change_pct = st.sidebar.slider(
+        "Stok Tutar Değişimi (%)",
+        min_value=-50.0,
+        max_value=100.0,
+        value=0.0,
+        step=5.0,
+        help="2025'e göre stok tutarında % artış veya azalış"
+    ) / 100
+    stock_ratio_target = None
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Tahmin Yöntemi")
@@ -116,11 +159,31 @@ try:
     
     # Tahmin yap
     with st.spinner('Tahmin hesaplanıyor...'):
-        full_data = forecaster.get_full_data_with_forecast(
-            growth_param=growth_param,
-            margin_improvement=margin_improvement,
-            stock_ratio_target=stock_ratio_target
-        )
+        # Stok hedefini belirle
+        if stock_change_pct is not None:
+            # Stok tutar değişimi seçildi - 2025 ortalama stokunu hesapla
+            avg_stock_2025 = forecaster.data[forecaster.data['Year'] == 2025]['Stock'].mean()
+            target_stock_2026 = avg_stock_2025 * (1 + stock_change_pct)
+            
+            # COGS'a göre oran hesapla (tahmin içinde kullanılacak)
+            avg_cogs_2025 = forecaster.data[forecaster.data['Year'] == 2025]['COGS'].mean()
+            if avg_cogs_2025 > 0:
+                stock_ratio_calc = target_stock_2026 / avg_cogs_2025
+            else:
+                stock_ratio_calc = 0.8
+            
+            full_data = forecaster.get_full_data_with_forecast(
+                growth_param=growth_param,
+                margin_improvement=margin_improvement,
+                stock_ratio_target=stock_ratio_calc
+            )
+        else:
+            # Stok/SMM oranı seçildi
+            full_data = forecaster.get_full_data_with_forecast(
+                growth_param=growth_param,
+                margin_improvement=margin_improvement,
+                stock_ratio_target=stock_ratio_target
+            )
         
         summary = forecaster.get_summary_stats(full_data)
     
@@ -163,13 +226,25 @@ try:
         )
     
     with col4:
-        stock_ratio_2026 = summary[2026]['Avg_Stock_COGS_Ratio']
+        stock_2026 = summary[2026]['Avg_Stock']
+        stock_2025 = summary[2025]['Avg_Stock']
+        stock_change = ((stock_2026 - stock_2025) / stock_2025 * 100) if stock_2025 > 0 else 0
         
-        st.metric(
-            label="2026 Stok/SMM Oranı",
-            value=f"{stock_ratio_2026:.2f}",
-            delta=f"Hedef: {stock_ratio_target:.2f}"
-        )
+        if stock_change_pct is not None:
+            # Tutar değişimi göster
+            st.metric(
+                label="2026 Ort. Stok",
+                value=f"₺{stock_2026:,.0f}",
+                delta=f"%{stock_change:+.1f} vs 2025"
+            )
+        else:
+            # Oran göster
+            stock_ratio_2026 = summary[2026]['Avg_Stock_COGS_Ratio']
+            st.metric(
+                label="2026 Stok/SMM Oranı",
+                value=f"{stock_ratio_2026:.2f}",
+                delta=f"Hedef: {stock_ratio_target:.2f}"
+            )
     
     st.markdown("---")
     
