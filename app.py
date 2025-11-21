@@ -123,11 +123,8 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🏪 Ana Grup Bazında Hedef")
 
-@st.cache_data
-def get_main_groups(forecaster_obj):
-    return sorted(forecaster_obj.data['MainGroup'].unique().tolist())
-
-main_groups = get_main_groups(forecaster)
+# Ana grupları al (cache yok, her seferinde hesaplansın - hızlı zaten)
+main_groups = sorted(forecaster.data['MainGroup'].unique().tolist())
 
 maingroup_input_type = st.sidebar.radio(
     "Ana Grup Hedefi",
