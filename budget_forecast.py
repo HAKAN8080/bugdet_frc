@@ -69,6 +69,39 @@ class BudgetForecaster:
             0
         )
         
+        # 2025 Aralık ayı eksikse tahmin et
+        self._fill_missing_december_2025()
+    
+    def _fill_missing_december_2025(self):
+        """2025 Aralık ayı eksik veya sıfırsa tahmin et"""
+        
+        # 2025 Aralık kontrol et
+        december_2025 = self.data[(self.data['Year'] == 2025) & (self.data['Month'] == 12)]
+        
+        # Aralık yoksa veya toplamı çok düşükse
+        if len(december_2025) == 0 or december_2025['Sales'].sum() < 1000000:
+            
+            # Kasım 2025 verilerini al
+            november_2025 = self.data[(self.data['Year'] == 2025) & (self.data['Month'] == 11)].copy()
+            
+            if len(november_2025) > 0:
+                # Aralık tahmini: Kasım × 1.12 (mevsimsellik faktörü)
+                december_estimate = november_2025.copy()
+                december_estimate['Month'] = 12
+                december_estimate['Sales'] = december_estimate['Sales'] * 1.12
+                december_estimate['GrossProfit'] = december_estimate['GrossProfit'] * 1.12
+                december_estimate['COGS'] = december_estimate['COGS'] * 1.12
+                december_estimate['Stock'] = december_estimate['Stock'] * 1.05
+                
+                # Mevcut Aralık verisini çıkar (varsa)
+                self.data = self.data[~((self.data['Year'] == 2025) & (self.data['Month'] == 12))]
+                
+                # Yeni tahmini ekle
+                self.data = pd.concat([self.data, december_estimate], ignore_index=True)
+                self.data = self.data.sort_values(['Year', 'Month', 'MainGroup']).reset_index(drop=True)
+                
+                print("📅 2025 Aralık ayı tahmini eklendi (Kasım × 1.12)")
+        
     def calculate_seasonality(self):
         """Her ay için mevsimsellik indeksi hesapla"""
         
