@@ -228,41 +228,40 @@ try:
     if forecaster is not None:
         # Tahmin yap
         with st.spinner('Tahmin hesaplanıyor...'):
-    with st.spinner('Tahmin hesaplanıyor...'):
-        # Stok hedefini belirle
-        if stock_change_pct is not None:
-            # Stok tutar değişimi seçildi - 2025 ortalama stokunu hesapla
-            avg_stock_2025 = forecaster.data[forecaster.data['Year'] == 2025]['Stock'].mean()
-            target_stock_2026 = avg_stock_2025 * (1 + stock_change_pct)
-            
-            # COGS'a göre oran hesapla (tahmin içinde kullanılacak)
-            avg_cogs_2025 = forecaster.data[forecaster.data['Year'] == 2025]['COGS'].mean()
-            if avg_cogs_2025 > 0:
-                stock_ratio_calc = target_stock_2026 / avg_cogs_2025
+            # Stok hedefini belirle
+            if stock_change_pct is not None:
+                # Stok tutar değişimi seçildi - 2025 ortalama stokunu hesapla
+                avg_stock_2025 = forecaster.data[forecaster.data['Year'] == 2025]['Stock'].mean()
+                target_stock_2026 = avg_stock_2025 * (1 + stock_change_pct)
+                
+                # COGS'a göre oran hesapla (tahmin içinde kullanılacak)
+                avg_cogs_2025 = forecaster.data[forecaster.data['Year'] == 2025]['COGS'].mean()
+                if avg_cogs_2025 > 0:
+                    stock_ratio_calc = target_stock_2026 / avg_cogs_2025
+                else:
+                    stock_ratio_calc = 0.8
+                
+                full_data = forecaster.get_full_data_with_forecast(
+                    growth_param=growth_param,
+                    margin_improvement=margin_improvement,
+                    stock_ratio_target=stock_ratio_calc,
+                    monthly_growth_targets=monthly_growth_targets,
+                    maingroup_growth_targets=maingroup_growth_targets
+                )
             else:
-                stock_ratio_calc = 0.8
+                # Stok/SMM oranı seçildi
+                full_data = forecaster.get_full_data_with_forecast(
+                    growth_param=growth_param,
+                    margin_improvement=margin_improvement,
+                    stock_ratio_target=stock_ratio_target,
+                    monthly_growth_targets=monthly_growth_targets,
+                    maingroup_growth_targets=maingroup_growth_targets
+                )
             
-            full_data = forecaster.get_full_data_with_forecast(
-                growth_param=growth_param,
-                margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_calc,
-                monthly_growth_targets=monthly_growth_targets,
-                maingroup_growth_targets=maingroup_growth_targets
-            )
-        else:
-            # Stok/SMM oranı seçildi
-            full_data = forecaster.get_full_data_with_forecast(
-                growth_param=growth_param,
-                margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_target,
-                monthly_growth_targets=monthly_growth_targets,
-                maingroup_growth_targets=maingroup_growth_targets
-            )
+            summary = forecaster.get_summary_stats(full_data)
         
-        summary = forecaster.get_summary_stats(full_data)
-    
-    # Ana metrikler
-    st.markdown("## 📈 Özet Metrikler")
+        # Ana metrikler
+        st.markdown("## 📈 Özet Metrikler")
     
     col1, col2, col3, col4 = st.columns(4)
     
