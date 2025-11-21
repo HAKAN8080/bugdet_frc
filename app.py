@@ -1,576 +1,261 @@
-import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from budget_forecast import BudgetForecaster
 import numpy as np
+from sklearn.linear_model import LinearRegression
+import warnings
+warnings.filterwarnings('ignore')
 
-# Sayfa konfigürasyonu
-st.set_page_config(
-    page_title="2026 Satış Bütçe Tahmini",
-    page_icon="📊",
-    layout="wide"
-)
-
-# CSS ile bazı styling
-st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# Header
-st.markdown('<p class="main-header">📊 2026 Satış Bütçe Tahmini Sistemi</p>', unsafe_allow_html=True)
-
-# Sidebar - Parametreler
-st.sidebar.header("📋 Tahmin Parametreleri")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Büyüme Hedefi")
-
-# Ay bazında hedef
-st.sidebar.markdown("### 📅 Ay Bazında Hedef")
-monthly_input_type = st.sidebar.radio(
-    "Ay Hedefi",
-    ["Tüm Aylar İçin Tek Hedef", "Her Ay Ayrı Hedef"],
-    index=0,
-    key="monthly_type"
-)
-
-monthly_growth_targets = {}
-
-if monthly_input_type == "Tüm Aylar İçin Tek Hedef":
-    monthly_default = st.sidebar.slider(
-        "Tüm Aylar İçin Büyüme Hedefi (%)",
-        min_value=-20.0,
-        max_value=50.0,
-        value=15.0,
-        step=1.0,
-        key="monthly_default"
-    ) / 100
-    
-    for month in range(1, 13):
-        monthly_growth_targets[month] = monthly_default
-    
-else:
-    st.sidebar.caption("↓ Aşağı kaydırarak tüm ayları görebilirsiniz")
-    
-    month_names = {
-        1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan",
-        5: "Mayıs", 6: "Haziran", 7: "Temmuz", 8: "Ağustos",
-        9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
-    }
-    
-    for month in range(1, 13):
-        monthly_growth_targets[month] = st.sidebar.slider(
-            f"{month_names[month]} ({month})",
-            min_value=-20.0,
-            max_value=50.0,
-            value=15.0,
-            step=1.0,
-            key=f"month_{month}"
-        ) / 100
-    
-    avg_monthly = sum(monthly_growth_targets.values()) / 12
-    st.sidebar.info(f"📊 Ort. Aylık: %{avg_monthly*100:.1f}")
-
-# Ana grup bazında hedef
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🏪 Ana Grup Bazında Hedef")
-maingroup_input_type = st.sidebar.radio(
-    "Ana Grup Hedefi",
-    ["Tüm Gruplar İçin Tek Hedef", "Her Grup Ayrı Hedef"],
-    index=0,
-    key="maingroup_type"
-)
-
-maingroup_growth_targets = {}
-
-# Ana grupları yükle
-@st.cache_data
-def get_main_groups(forecaster):
-    return sorted(forecaster.data['MainGroup'].unique().tolist())
-
-if uploaded_file is not None:
-    main_groups = get_main_groups(forecaster)
-    
-    if maingroup_input_type == "Tüm Gruplar İçin Tek Hedef":
-        maingroup_default = st.sidebar.slider(
-            "Tüm Gruplar İçin Büyüme Hedefi (%)",
-            min_value=-20.0,
-            max_value=50.0,
-            value=15.0,
-            step=1.0,
-            key="maingroup_default"
-        ) / 100
+class BudgetForecaster:
+    def __init__(self, excel_path):
+        """Excel'den veriyi yükle ve temizle"""
+        # Raw olarak oku, header belirtme
+        df_raw = pd.read_excel(excel_path, sheet_name='Sayfa1', header=None)
         
-        for group in main_groups:
-            maingroup_growth_targets[group] = maingroup_default
+        # Header 1. satır (index 1)
+        self.df = pd.read_excel(excel_path, sheet_name='Sayfa1', header=1)
+        
+        self.process_data()
+        
+    def process_data(self):
+        """Veriyi yıl bazında ayrıştır ve temizle"""
+        
+        # 2024 verileri - DOĞRU KOLONLAR
+        # J (TY Sales Value TRY2) = Gerçek satış değeri
+        # H (TY Gross Profit TRY2) = Brüt kar
+        # K (TY Gross Marjin TRY%) = Brüt marj %
+        # I (TY Avg Store Stock Cost TRY2) = Stok
+        df_2024 = self.df[['Month', 'MainGroupDesc', 
+                           'TY Sales Value TRY2',          # Kolon J - Gerçek satış
+                           'TY Gross Profit TRY2',         # Kolon H - Brüt kar  
+                           'TY Gross Marjin TRY%',         # Kolon K - Brüt marj %
+                           'TY Avg Store Stock Cost TRY2']].copy()  # Kolon I - Stok
+        df_2024.columns = ['Month', 'MainGroup', 'Sales', 'GrossProfit', 'GrossMargin%', 'Stock']
+        df_2024['Year'] = 2024
+        
+        # 2025 verileri - DOĞRU KOLONLAR
+        # S (TY Sales Value TRY2.1) = Gerçek satış değeri
+        # Q (TY Gross Profit TRY2.1) = Brüt kar
+        # T (TY Gross Marjin TRY%.1) = Brüt marj %
+        # R (TY Avg Store Stock Cost TRY2.1) = Stok
+        df_2025 = self.df[['Month', 'MainGroupDesc',
+                           'TY Sales Value TRY2.1',         # Kolon S - Gerçek satış
+                           'TY Gross Profit TRY2.1',        # Kolon Q - Brüt kar
+                           'TY Gross Marjin TRY%.1',        # Kolon T - Brüt marj %
+                           'TY Avg Store Stock Cost TRY2.1']].copy()  # Kolon R - Stok
+        df_2025.columns = ['Month', 'MainGroup', 'Sales', 'GrossProfit', 'GrossMargin%', 'Stock']
+        df_2025['Year'] = 2025
+        
+        # Birleştir
+        self.data = pd.concat([df_2024, df_2025], ignore_index=True)
+        
+        # Toplam satırlarını çıkar
+        self.data = self.data[~self.data['Month'].astype(str).str.contains('Toplam', na=False)]
+        
+        # Month'u integer'a çevir
+        self.data['Month'] = pd.to_numeric(self.data['Month'], errors='coerce')
+        
+        # MainGroup boş olanları çıkar
+        self.data = self.data.dropna(subset=['MainGroup'])
+        
+        # NaN değerleri 0 yap
+        self.data = self.data.fillna(0)
+        
+        # SMM hesapla (COGS = Sales - GrossProfit)
+        self.data['COGS'] = self.data['Sales'] - self.data['GrossProfit']
+        
+        # Stok/COGS oranı hesapla (hız)
+        self.data['Stock_COGS_Ratio'] = np.where(
+            self.data['COGS'] > 0,
+            self.data['Stock'] / self.data['COGS'],
+            0
+        )
+        
+    def calculate_seasonality(self):
+        """Her ay için mevsimsellik indeksi hesapla"""
+        
+        # Grup ve ay bazında ortalama satış
+        monthly_avg = self.data.groupby(['MainGroup', 'Month'])['Sales'].mean().reset_index()
+        monthly_avg.columns = ['MainGroup', 'Month', 'AvgSales']
+        
+        # Her grup için yıllık ortalama
+        yearly_avg = self.data.groupby('MainGroup')['Sales'].mean().reset_index()
+        yearly_avg.columns = ['MainGroup', 'YearlyAvg']
+        
+        # Merge
+        seasonality = monthly_avg.merge(yearly_avg, on='MainGroup')
+        
+        # Mevsimsellik indeksi = Aylık Ort / Yıllık Ort
+        seasonality['SeasonalityIndex'] = np.where(
+            seasonality['YearlyAvg'] > 0,
+            seasonality['AvgSales'] / seasonality['YearlyAvg'],
+            1
+        )
+        
+        return seasonality[['MainGroup', 'Month', 'SeasonalityIndex']]
     
-    else:
-        st.sidebar.caption("↓ Aşağı kaydırarak tüm grupları görebilirsiniz")
+    def calculate_trend(self):
+        """Her grup için trend hesapla (2024->2025 büyümesi)"""
         
-        for group in main_groups:
-            maingroup_growth_targets[group] = st.sidebar.slider(
-                f"{group}",
-                min_value=-20.0,
-                max_value=50.0,
-                value=15.0,
-                step=1.0,
-                key=f"group_{group}"
-            ) / 100
+        # 2024 toplamı
+        total_2024 = self.data[self.data['Year'] == 2024].groupby('MainGroup')['Sales'].sum().reset_index()
+        total_2024.columns = ['MainGroup', 'Sales_2024']
         
-        avg_maingroup = sum(maingroup_growth_targets.values()) / len(maingroup_growth_targets)
-        st.sidebar.info(f"📊 Ort. Ana Grup: %{avg_maingroup*100:.1f}")
+        # 2025 toplamı
+        total_2025 = self.data[self.data['Year'] == 2025].groupby('MainGroup')['Sales'].sum().reset_index()
+        total_2025.columns = ['MainGroup', 'Sales_2025']
+        
+        # Merge
+        trend = total_2024.merge(total_2025, on='MainGroup')
+        
+        # Büyüme oranı hesapla
+        trend['GrowthRate'] = np.where(
+            trend['Sales_2024'] > 0,
+            (trend['Sales_2025'] - trend['Sales_2024']) / trend['Sales_2024'],
+            0
+        )
+        
+        return trend[['MainGroup', 'GrowthRate']]
     
-    # Genel ortalama hesapla
-    growth_param = sum(monthly_growth_targets.values()) / 12
-else:
-    # Dosya yüklenmemiş, default değerler
-    growth_param = 0.15
-    for month in range(1, 13):
-        monthly_growth_targets[month] = 0.15
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Karlılık Hedefi")
-margin_improvement = st.sidebar.slider(
-    "Brüt Marj İyileşme Hedefi (puan)",
-    min_value=-5.0,
-    max_value=10.0,
-    value=2.0,
-    step=0.5,
-    help="Mevcut brüt marj üzerine eklenecek puan"
-) / 100
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📦 Stok Hedefi")
-
-stock_param_type = st.sidebar.radio(
-    "Stok Parametresi",
-    ["Stok/SMM Oranı", "Stok Tutar Değişimi"],
-    index=0,
-    help="Stok hedefini oran veya tutar bazında belirle"
-)
-
-if stock_param_type == "Stok/SMM Oranı":
-    stock_ratio_target = st.sidebar.slider(
-        "Hedef Stok/SMM Oranı",
-        min_value=0.3,
-        max_value=2.0,
-        value=0.8,
-        step=0.1,
-        help="Stok tutarı / Satılan Malın Maliyeti oranı"
-    )
-    stock_change_pct = None
-else:
-    stock_change_pct = st.sidebar.slider(
-        "Stok Tutar Değişimi (%)",
-        min_value=-50.0,
-        max_value=100.0,
-        value=0.0,
-        step=5.0,
-        help="2025'e göre stok tutarında % artış veya azalış"
-    ) / 100
-    stock_ratio_target = None
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Tahmin Yöntemi")
-forecast_method = st.sidebar.selectbox(
-    "Model Tipi",
-    ["Gelişmiş (Trend + Mevsimsellik + Momentum)", 
-     "Orta (Trend + Mevsimsellik)",
-     "Basit (Sadece Büyüme Parametresi)"],
-    index=0
-)
-
-# File upload
-st.sidebar.markdown("---")
-st.sidebar.subheader("📂 Veri Yükleme")
-uploaded_file = st.sidebar.file_uploader(
-    "Excel Dosyası Yükle",
-    type=['xlsx'],
-    help="2024-2025 verilerini içeren Excel dosyası"
-)
-
-# Load data
-@st.cache_data
-def load_data(file_path):
-    forecaster = BudgetForecaster(file_path)
-    return forecaster
-
-try:
-    if uploaded_file is not None:
-        # Geçici dosyaya kaydet
-        import tempfile
-        import os
+    def calculate_recent_momentum(self):
+        """Son 3 ayın momentumunu hesapla"""
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_path = tmp_file.name
+        # Son 3 ay (2025'in 10, 11, 12. ayları varsayalım - veri varsa)
+        recent_months = self.data[
+            (self.data['Year'] == 2025) & 
+            (self.data['Month'].isin([10, 11, 12]))
+        ]
         
-        with st.spinner('Veri yükleniyor...'):
-            forecaster = load_data(tmp_path)
+        if len(recent_months) == 0:
+            # Veri yoksa 2025'in tamamını al
+            recent_months = self.data[self.data['Year'] == 2025]
         
-        # Geçici dosyayı sil
-        os.unlink(tmp_path)
-    else:
-        st.info("👆 Lütfen soldaki menüden Excel dosyanızı yükleyin.")
-        st.stop()
+        # Grup bazında ortalama
+        momentum = recent_months.groupby('MainGroup')['Sales'].mean().reset_index()
+        momentum.columns = ['MainGroup', 'RecentAvg']
+        
+        # Genel ortalama ile karşılaştır
+        overall_avg = self.data[self.data['Year'] == 2025].groupby('MainGroup')['Sales'].mean().reset_index()
+        overall_avg.columns = ['MainGroup', 'OverallAvg']
+        
+        momentum = momentum.merge(overall_avg, on='MainGroup')
+        
+        # Momentum skoru (son aylar / genel ortalama)
+        momentum['MomentumScore'] = np.where(
+            momentum['OverallAvg'] > 0,
+            momentum['RecentAvg'] / momentum['OverallAvg'],
+            1
+        )
+        
+        return momentum[['MainGroup', 'MomentumScore']]
     
-    # Tahmin yap
-    with st.spinner('Tahmin hesaplanıyor...'):
-        # Stok hedefini belirle
-        if stock_change_pct is not None:
-            # Stok tutar değişimi seçildi - 2025 ortalama stokunu hesapla
-            avg_stock_2025 = forecaster.data[forecaster.data['Year'] == 2025]['Stock'].mean()
-            target_stock_2026 = avg_stock_2025 * (1 + stock_change_pct)
-            
-            # COGS'a göre oran hesapla (tahmin içinde kullanılacak)
-            avg_cogs_2025 = forecaster.data[forecaster.data['Year'] == 2025]['COGS'].mean()
-            if avg_cogs_2025 > 0:
-                stock_ratio_calc = target_stock_2026 / avg_cogs_2025
-            else:
-                stock_ratio_calc = 0.8
-            
-            full_data = forecaster.get_full_data_with_forecast(
-                growth_param=growth_param,
-                margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_calc,
-                monthly_growth_targets=monthly_growth_targets,
-                maingroup_growth_targets=maingroup_growth_targets
-            )
+    def forecast_2026(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None):
+        """
+        2026 tahminini yap
+        
+        Parameters:
+        -----------
+        growth_param: Genel büyüme hedefi (diğer hedefler yoksa kullanılır)
+        margin_improvement: Brüt marj iyileşme hedefi (örn: 0.02 = 2 puan)
+        stock_ratio_target: Hedef stok/SMM oranı (örn: 0.8)
+        monthly_growth_targets: Dict {month: growth_rate} - Her ay için özel hedef
+        maingroup_growth_targets: Dict {maingroup: growth_rate} - Her ana grup için özel hedef
+        """
+        
+        # Mevsimsellik hesapla
+        seasonality = self.calculate_seasonality()
+        
+        # 2025 verilerini al (base olarak kullanacağız)
+        base_2025 = self.data[self.data['Year'] == 2025].copy()
+        
+        # Mevsimselliği ekle
+        forecast = base_2025.merge(seasonality, on=['MainGroup', 'Month'], how='left')
+        forecast['SeasonalityIndex'] = forecast['SeasonalityIndex'].fillna(1.0)
+        
+        # Organik trend (2024->2025)
+        total_2024 = self.data[self.data['Year'] == 2024]['Sales'].sum()
+        total_2025 = self.data[self.data['Year'] == 2025]['Sales'].sum()
+        organic_growth = (total_2025 - total_2024) / total_2024 if total_2024 > 0 else 0
+        
+        # AY BAZINDA BÜYÜME HEDEFLERİ
+        if monthly_growth_targets is not None:
+            forecast['MonthlyGrowthTarget'] = forecast['Month'].map(monthly_growth_targets)
+            forecast['MonthlyGrowthTarget'] = forecast['MonthlyGrowthTarget'].fillna(growth_param)
         else:
-            # Stok/SMM oranı seçildi
-            full_data = forecaster.get_full_data_with_forecast(
-                growth_param=growth_param,
-                margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_target,
-                monthly_growth_targets=monthly_growth_targets,
-                maingroup_growth_targets=maingroup_growth_targets
-            )
+            forecast['MonthlyGrowthTarget'] = growth_param
         
-        summary = forecaster.get_summary_stats(full_data)
-    
-    # Ana metrikler
-    st.markdown("## 📈 Özet Metrikler")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        sales_2026 = summary[2026]['Total_Sales']
-        sales_2025 = summary[2025]['Total_Sales']
-        sales_growth = ((sales_2026 - sales_2025) / sales_2025 * 100) if sales_2025 > 0 else 0
-        
-        st.metric(
-            label="2026 Toplam Satış",
-            value=f"₺{sales_2026:,.0f}",
-            delta=f"%{sales_growth:.1f} vs 2025"
-        )
-    
-    with col2:
-        margin_2026 = summary[2026]['Avg_GrossMargin%']
-        margin_2025 = summary[2025]['Avg_GrossMargin%']
-        margin_change = margin_2026 - margin_2025
-        
-        st.metric(
-            label="2026 Brüt Marj",
-            value=f"%{margin_2026:.1f}",
-            delta=f"{margin_change:+.1f} puan"
-        )
-    
-    with col3:
-        gp_2026 = summary[2026]['Total_GrossProfit']
-        gp_2025 = summary[2025]['Total_GrossProfit']
-        gp_growth = ((gp_2026 - gp_2025) / gp_2025 * 100) if gp_2025 > 0 else 0
-        
-        st.metric(
-            label="2026 Brüt Kar",
-            value=f"₺{gp_2026:,.0f}",
-            delta=f"%{gp_growth:.1f} vs 2025"
-        )
-    
-    with col4:
-        stock_2026 = summary[2026]['Avg_Stock']
-        stock_2025 = summary[2025]['Avg_Stock']
-        stock_change = ((stock_2026 - stock_2025) / stock_2025 * 100) if stock_2025 > 0 else 0
-        
-        if stock_change_pct is not None:
-            # Tutar değişimi göster
-            st.metric(
-                label="2026 Ort. Stok",
-                value=f"₺{stock_2026:,.0f}",
-                delta=f"%{stock_change:+.1f} vs 2025"
-            )
+        # ANA GRUP BAZINDA BÜYÜME HEDEFLERİ
+        if maingroup_growth_targets is not None:
+            forecast['MainGroupGrowthTarget'] = forecast['MainGroup'].map(maingroup_growth_targets)
+            forecast['MainGroupGrowthTarget'] = forecast['MainGroupGrowthTarget'].fillna(growth_param)
         else:
-            # Oran göster
-            stock_ratio_2026 = summary[2026]['Avg_Stock_COGS_Ratio']
-            st.metric(
-                label="2026 Stok/SMM Oranı",
-                value=f"{stock_ratio_2026:.2f}",
-                delta=f"Hedef: {stock_ratio_target:.2f}"
-            )
-    
-    st.markdown("---")
-    
-    # Tab'lar
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Aylık Trend", "🎯 Ana Grup Analizi", "📅 Yıllık Karşılaştırma", "📋 Detay Veriler"])
-    
-    with tab1:
-        st.subheader("Aylık Satış Trendi (2024-2026)")
+            forecast['MainGroupGrowthTarget'] = growth_param
         
-        # Aylık toplam satış
-        monthly_sales = full_data.groupby(['Year', 'Month'])['Sales'].sum().reset_index()
+        # KOMBINE BÜYÜME HEDEFI
+        # Ay hedefi ve Ana Grup hedefinin ortalamasını al
+        forecast['CombinedGrowthTarget'] = (forecast['MonthlyGrowthTarget'] + forecast['MainGroupGrowthTarget']) / 2
         
-        fig = go.Figure()
+        # TAHMİN FORMÜLÜ
+        # 2025 değeri × (1 + organik büyüme × 0.3) × (1 + kombine hedef) × mevsimsel düzeltme
+        forecast['Sales_2026'] = (
+            forecast['Sales'] *
+            (1 + organic_growth * 0.3) *  # Organik trend hafif etki
+            (1 + forecast['CombinedGrowthTarget']) *  # Ay + Ana Grup kombine hedef
+            (0.85 + forecast['SeasonalityIndex'] * 0.15)  # Mevsimsellik hafif etki
+        )
+        
+        # Gross Margin iyileşmesi
+        forecast['GrossMargin%_2026'] = (forecast['GrossMargin%'] + margin_improvement).clip(0, 1)
+        
+        # GrossProfit ve COGS
+        forecast['GrossProfit_2026'] = forecast['Sales_2026'] * forecast['GrossMargin%_2026']
+        forecast['COGS_2026'] = forecast['Sales_2026'] - forecast['GrossProfit_2026']
+        
+        # Stok
+        forecast['Stock_2026'] = forecast['COGS_2026'] * stock_ratio_target
+        
+        # Sonuç datasını hazırla
+        result = forecast[['Month', 'MainGroup', 'Sales_2026', 'GrossProfit_2026', 
+                          'GrossMargin%_2026', 'Stock_2026', 'COGS_2026']].copy()
+        result.columns = ['Month', 'MainGroup', 'Sales', 'GrossProfit', 
+                         'GrossMargin%', 'Stock', 'COGS']
+        result['Year'] = 2026
+        
+        # Stok/COGS oranı
+        result['Stock_COGS_Ratio'] = np.where(
+            result['COGS'] > 0,
+            result['Stock'] / result['COGS'],
+            0
+        )
+        
+        return result
+    
+    def get_full_data_with_forecast(self, growth_param=0.1, margin_improvement=0.0, stock_ratio_target=1.0, monthly_growth_targets=None, maingroup_growth_targets=None):
+        """2024, 2025 ve 2026 tahminini birleştir"""
+        
+        forecast_2026 = self.forecast_2026(growth_param, margin_improvement, stock_ratio_target, monthly_growth_targets, maingroup_growth_targets)
+        
+        # 2024-2025 verisini düzenle
+        historical = self.data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 
+                               'GrossMargin%', 'Stock', 'COGS', 'Stock_COGS_Ratio', 'Year']].copy()
+        
+        # Birleştir
+        full_data = pd.concat([historical, forecast_2026], ignore_index=True)
+        
+        return full_data
+    
+    def get_summary_stats(self, data):
+        """Özet istatistikler"""
+        
+        summary = {}
         
         for year in [2024, 2025, 2026]:
-            year_data = monthly_sales[monthly_sales['Year'] == year]
+            year_data = data[data['Year'] == year]
             
-            line_style = 'solid' if year < 2026 else 'dash'
-            line_width = 2 if year < 2026 else 3
-            
-            fig.add_trace(go.Scatter(
-                x=year_data['Month'],
-                y=year_data['Sales'],
-                mode='lines+markers',
-                name=f'{year}' + (' (Tahmin)' if year == 2026 else ''),
-                line=dict(dash=line_style, width=line_width),
-                marker=dict(size=8)
-            ))
+            summary[year] = {
+                'Total_Sales': year_data['Sales'].sum(),
+                'Total_GrossProfit': year_data['GrossProfit'].sum(),
+                'Avg_GrossMargin%': (year_data['GrossProfit'].sum() / year_data['Sales'].sum() * 100) if year_data['Sales'].sum() > 0 else 0,
+                'Avg_Stock': year_data['Stock'].mean(),
+                'Avg_Stock_COGS_Ratio': year_data['Stock_COGS_Ratio'].mean()
+            }
         
-        fig.update_layout(
-            title="Aylık Satış Karşılaştırması",
-            xaxis_title="Ay",
-            yaxis_title="Satış (TRY)",
-            hovermode='x unified',
-            height=500
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Brüt Marj Trendi
-        st.subheader("Aylık Brüt Marj % Trendi")
-        
-        monthly_margin = full_data.groupby(['Year', 'Month']).apply(
-            lambda x: (x['GrossProfit'].sum() / x['Sales'].sum() * 100) if x['Sales'].sum() > 0 else 0
-        ).reset_index(name='Margin%')
-        
-        fig2 = go.Figure()
-        
-        for year in [2024, 2025, 2026]:
-            year_data = monthly_margin[monthly_margin['Year'] == year]
-            
-            line_style = 'solid' if year < 2026 else 'dash'
-            
-            fig2.add_trace(go.Scatter(
-                x=year_data['Month'],
-                y=year_data['Margin%'],
-                mode='lines+markers',
-                name=f'{year}' + (' (Tahmin)' if year == 2026 else ''),
-                line=dict(dash=line_style),
-                marker=dict(size=8)
-            ))
-        
-        fig2.update_layout(
-            title="Aylık Brüt Marj % Karşılaştırması",
-            xaxis_title="Ay",
-            yaxis_title="Brüt Marj %",
-            hovermode='x unified',
-            height=500
-        )
-        
-        st.plotly_chart(fig2, use_container_width=True)
-    
-    with tab2:
-        st.subheader("Ana Grup Bazında Performans")
-        
-        # Yıllık grup bazında satış
-        group_sales = full_data.groupby(['Year', 'MainGroup'])['Sales'].sum().reset_index()
-        
-        # 2026 için en büyük 10 grup
-        top_groups_2026 = group_sales[group_sales['Year'] == 2026].nlargest(10, 'Sales')['MainGroup'].tolist()
-        
-        group_sales_filtered = group_sales[group_sales['MainGroup'].isin(top_groups_2026)]
-        
-        fig3 = px.bar(
-            group_sales_filtered,
-            x='MainGroup',
-            y='Sales',
-            color='Year',
-            barmode='group',
-            title='Top 10 Ana Grup - Yıllık Satış Karşılaştırması'
-        )
-        
-        fig3.update_layout(height=500, xaxis_tickangle=-45)
-        st.plotly_chart(fig3, use_container_width=True)
-        
-        # Büyüme analizi
-        st.subheader("Ana Grup Büyüme Analizi (2025 → 2026)")
-        
-        sales_2025 = group_sales[group_sales['Year'] == 2025][['MainGroup', 'Sales']]
-        sales_2025.columns = ['MainGroup', 'Sales_2025']
-        
-        sales_2026 = group_sales[group_sales['Year'] == 2026][['MainGroup', 'Sales']]
-        sales_2026.columns = ['MainGroup', 'Sales_2026']
-        
-        growth_analysis = sales_2025.merge(sales_2026, on='MainGroup')
-        growth_analysis['Growth%'] = ((growth_analysis['Sales_2026'] - growth_analysis['Sales_2025']) / 
-                                       growth_analysis['Sales_2025'] * 100)
-        growth_analysis = growth_analysis.sort_values('Growth%', ascending=False)
-        
-        fig4 = px.bar(
-            growth_analysis.head(15),
-            x='MainGroup',
-            y='Growth%',
-            title='Top 15 Ana Grup - Büyüme Oranı',
-            color='Growth%',
-            color_continuous_scale='RdYlGn'
-        )
-        
-        fig4.update_layout(height=500, xaxis_tickangle=-45)
-        st.plotly_chart(fig4, use_container_width=True)
-    
-    with tab3:
-        st.subheader("Yıllık Toplam Karşılaştırma")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Satış ve Kar karşılaştırması
-            yearly_summary = pd.DataFrame({
-                'Yıl': [2024, 2025, 2026],
-                'Satış': [summary[2024]['Total_Sales'], 
-                         summary[2025]['Total_Sales'],
-                         summary[2026]['Total_Sales']],
-                'Brüt Kar': [summary[2024]['Total_GrossProfit'],
-                            summary[2025]['Total_GrossProfit'],
-                            summary[2026]['Total_GrossProfit']]
-            })
-            
-            fig5 = go.Figure()
-            fig5.add_trace(go.Bar(name='Satış', x=yearly_summary['Yıl'], y=yearly_summary['Satış']))
-            fig5.add_trace(go.Bar(name='Brüt Kar', x=yearly_summary['Yıl'], y=yearly_summary['Brüt Kar']))
-            
-            fig5.update_layout(
-                title='Yıllık Satış ve Brüt Kar',
-                barmode='group',
-                height=400
-            )
-            
-            st.plotly_chart(fig5, use_container_width=True)
-        
-        with col2:
-            # Brüt Marj % karşılaştırması
-            yearly_margin = pd.DataFrame({
-                'Yıl': [2024, 2025, 2026],
-                'Brüt Marj %': [summary[2024]['Avg_GrossMargin%'],
-                               summary[2025]['Avg_GrossMargin%'],
-                               summary[2026]['Avg_GrossMargin%']]
-            })
-            
-            fig6 = go.Figure()
-            fig6.add_trace(go.Scatter(
-                x=yearly_margin['Yıl'],
-                y=yearly_margin['Brüt Marj %'],
-                mode='lines+markers',
-                line=dict(width=3),
-                marker=dict(size=12)
-            ))
-            
-            fig6.update_layout(
-                title='Yıllık Brüt Marj %',
-                height=400,
-                yaxis_title='Brüt Marj %'
-            )
-            
-            st.plotly_chart(fig6, use_container_width=True)
-        
-        # Özet tablo
-        st.subheader("Yıllık Özet Tablo")
-        
-        summary_table = pd.DataFrame({
-            'Metrik': ['Toplam Satış (TRY)', 'Toplam Brüt Kar (TRY)', 
-                      'Brüt Marj %', 'Ort. Stok (TRY)', 'Stok/SMM Oranı'],
-            '2024': [
-                f"₺{summary[2024]['Total_Sales']:,.0f}",
-                f"₺{summary[2024]['Total_GrossProfit']:,.0f}",
-                f"%{summary[2024]['Avg_GrossMargin%']:.2f}",
-                f"₺{summary[2024]['Avg_Stock']:,.0f}",
-                f"{summary[2024]['Avg_Stock_COGS_Ratio']:.2f}"
-            ],
-            '2025': [
-                f"₺{summary[2025]['Total_Sales']:,.0f}",
-                f"₺{summary[2025]['Total_GrossProfit']:,.0f}",
-                f"%{summary[2025]['Avg_GrossMargin%']:.2f}",
-                f"₺{summary[2025]['Avg_Stock']:,.0f}",
-                f"{summary[2025]['Avg_Stock_COGS_Ratio']:.2f}"
-            ],
-            '2026 (Tahmin)': [
-                f"₺{summary[2026]['Total_Sales']:,.0f}",
-                f"₺{summary[2026]['Total_GrossProfit']:,.0f}",
-                f"%{summary[2026]['Avg_GrossMargin%']:.2f}",
-                f"₺{summary[2026]['Avg_Stock']:,.0f}",
-                f"{summary[2026]['Avg_Stock_COGS_Ratio']:.2f}"
-            ]
-        })
-        
-        st.dataframe(summary_table, use_container_width=True, hide_index=True)
-    
-    with tab4:
-        st.subheader("Detaylı Veri Tablosu")
-        
-        # Yıl seçimi
-        selected_year = st.selectbox("Yıl Seçin", [2024, 2025, 2026])
-        
-        # Filtrelenmiş data
-        filtered_data = full_data[full_data['Year'] == selected_year].copy()
-        
-        # Formatla
-        filtered_data['Sales'] = filtered_data['Sales'].apply(lambda x: f"₺{x:,.0f}")
-        filtered_data['GrossProfit'] = filtered_data['GrossProfit'].apply(lambda x: f"₺{x:,.0f}")
-        filtered_data['GrossMargin%'] = filtered_data['GrossMargin%'].apply(lambda x: f"%{x*100:.2f}")
-        filtered_data['Stock'] = filtered_data['Stock'].apply(lambda x: f"₺{x:,.0f}")
-        filtered_data['COGS'] = filtered_data['COGS'].apply(lambda x: f"₺{x:,.0f}")
-        filtered_data['Stock_COGS_Ratio'] = filtered_data['Stock_COGS_Ratio'].apply(lambda x: f"{x:.2f}")
-        
-        # Sıralama
-        filtered_data = filtered_data.sort_values(['Month', 'MainGroup'])
-        
-        st.dataframe(
-            filtered_data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 
-                          'GrossMargin%', 'Stock', 'COGS', 'Stock_COGS_Ratio']],
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # Excel export
-        st.download_button(
-            label="📥 Excel'e Aktar",
-            data=full_data.to_csv(index=False).encode('utf-8'),
-            file_name=f'budget_forecast_{selected_year}.csv',
-            mime='text/csv'
-        )
-
-except Exception as e:
-    st.error(f"Bir hata oluştu: {str(e)}")
-    st.exception(e)
-
-# Footer
-st.markdown("---")
-st.markdown("""
-    <div style='text-align: center; color: #666;'>
-        <p>2026 Satış Bütçe Tahmin Sistemi | Mevsimsellik + Trend + Momentum Analizi</p>
-    </div>
-""", unsafe_allow_html=True)
+        return summary
