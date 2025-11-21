@@ -211,29 +211,24 @@ else:
 
 # TAHMİN YAP
 with st.spinner('Tahmin hesaplanıyor...'):
-    # Stok hedefini belirle
+    # Stock parametresini belirle
     if stock_change_pct is not None:
-        avg_stock_2025 = forecaster.data[forecaster.data['Year'] == 2025]['Stock'].mean()
-        target_stock_2026 = avg_stock_2025 * (1 + stock_change_pct)
-        
-        avg_cogs_2025 = forecaster.data[forecaster.data['Year'] == 2025]['COGS'].mean()
-        if avg_cogs_2025 > 0:
-            stock_ratio_calc = target_stock_2026 / avg_cogs_2025
-        else:
-            stock_ratio_calc = 0.8
-        
+        # Tutar bazlı değişim - forecaster'a direkt geç
         full_data = forecaster.get_full_data_with_forecast(
             growth_param=growth_param,
             margin_improvement=margin_improvement,
-            stock_ratio_target=stock_ratio_calc,
+            stock_ratio_target=None,
+            stock_change_pct=stock_change_pct,
             monthly_growth_targets=monthly_growth_targets,
             maingroup_growth_targets=maingroup_growth_targets
         )
     else:
+        # Oran bazlı hedef - eski yöntem
         full_data = forecaster.get_full_data_with_forecast(
             growth_param=growth_param,
             margin_improvement=margin_improvement,
             stock_ratio_target=stock_ratio_target,
+            stock_change_pct=None,
             monthly_growth_targets=monthly_growth_targets,
             maingroup_growth_targets=maingroup_growth_targets
         )
