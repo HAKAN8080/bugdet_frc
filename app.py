@@ -311,13 +311,13 @@ with col1:
         
         # Gösterge belirleme
         if r2_pct > 80:
-            indicator = "🟢 "
+            indicator = "🟢 Çok İyi"
         elif r2_pct > 60:
-            indicator = "🟡 "
+            indicator = "🟡 İyi"
         elif r2_pct > 40:
-            indicator = "🟠 "
+            indicator = "🟠 Orta"
         else:
-            indicator = "🔴 "
+            indicator = "🔴 Zayıf"
         
         st.metric(
             label="Model Uyumu",
@@ -332,13 +332,13 @@ with col2:
         consistency_pct = quality_metrics['trend_consistency'] * 100
         
         if consistency_pct > 80:
-            indicator = "🟢 "
+            indicator = "🟢 Çok İstikrarlı"
         elif consistency_pct > 60:
-            indicator = "🟡 "
+            indicator = "🟡 İstikrarlı"
         elif consistency_pct > 40:
-            indicator = "🟠 "
+            indicator = "🟠 Değişken"
         else:
-            indicator = "🔴 "
+            indicator = "🔴 Çok Değişken"
         
         st.metric(
             label="Trend İstikrarı",
@@ -353,13 +353,13 @@ with col3:
         mape = quality_metrics['mape']
         
         if mape < 15:
-            indicator = "🟢"
-        elif mape < 25:    
-            indicator = "🟡"
+            indicator = "🟢 Düşük Hata"
+        elif mape < 25:
+            indicator = "🟡 Kabul Edilebilir"
         elif mape < 35:
-            indicator = "🟠"
+            indicator = "🟠 Yüksek Hata"
         else:
-            indicator = "🔴"
+            indicator = "🔴 Çok Yüksek Hata"
         
         st.metric(
             label="Tahmin Hatası",
@@ -720,86 +720,139 @@ with tab4:
     # Tam Excel dosyası oluştur
     st.markdown("---")
     st.subheader("📊 Tam Bütçe Dosyası İndir")
+    st.caption("Orijinal Excel + 2025 Aralık Tahmini + 2026 Tahmini")
     
-    if st.button("🔄 Excel Dosyası Oluştur (Orijinal + 2026)", type="primary"):
+    if st.button("🔄 Excel Dosyası Oluştur (Tüm Veriler)", type="primary"):
         with st.spinner("Excel dosyası hazırlanıyor..."):
             import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils.dataframe import dataframe_to_rows
             from io import BytesIO
             
-            # 2026 verisi hazırla - orijinal format
+            # 2025 Aralık ayını tahmin et (basit: önceki ayların ortalaması)
+            data_2025_full = forecaster.data[forecaster.data['Year'] == 2025].copy()
+            
+            # Aralık için tahmin yap - Kasım verilerini kopyala ve hafif artır
+            november_data = data_2025_full[data_2025_full['Month'] == 11].copy()
+            december_estimate = november_data.copy()
+            december_estimate['Month'] = 12
+            # Mevsimsellik faktörü: Aralık genelde Kasım'dan %10-15 yüksek
+            december_estimate['Sales'] = december_estimate['Sales'] * 1.12
+            december_estimate['GrossProfit'] = december_estimate['GrossProfit'] * 1.12
+            december_estimate['COGS'] = december_estimate['COGS'] * 1.12
+            december_estimate['Stock'] = december_estimate['Stock'] * 1.05  # Stok hafif artış
+            
+            # 2025'e Aralık tahminini ekle
+            data_2025_complete = pd.concat([data_2025_full[data_2025_full['Month'] != 12], december_estimate], ignore_index=True)
+            data_2025_complete = data_2025_complete.sort_values(['Month', 'MainGroup'])
+            
+            # 2026 verisi
             data_2026 = full_data[full_data['Year'] == 2026].copy()
             
-            # Orijinal Excel'deki kolon yapısına uygun hale getir
-            excel_2026 = pd.DataFrame()
+            # Orijinal Excel'i yükle
+            from openpyxl import load_workbook
             
-            for month in range(1, 13):
-                month_data = data_2026[data_2026['Month'] == month].copy()
+            # Yeni workbook oluştur
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active)  # Default sheet'i sil
+            
+            # 2024 sheet'i (orijinal veri)
+            ws_2024 = wb.create_sheet("2024")
+            data_2024 = forecaster.data[forecaster.data['Year'] == 2024].copy()
+            
+            # 2025 sheet'i (tamamlanmış - Aralık tahmini ile)
+            ws_2025 = wb.create_sheet("2025")
+            
+            # 2026 sheet'i (tahmin)
+            ws_2026 = wb.create_sheet("2026_Tahmin")
+            
+            # Her sheet için veri hazırla ve yaz
+            for ws, data, year_name in [(ws_2024, data_2024, "2024"), 
+                                         (ws_2025, data_2025_complete, "2025"), 
+                                         (ws_2026, data_2026, "2026")]:
                 
-                if len(month_data) > 0:
-                    # Toplam satırı ekle
-                    total_row = pd.DataFrame({
-                        'Month': [f'Toplam {month}'],
-                        'MainGroup': [None],
-                        'Sales': [month_data['Sales'].sum()],
-                        'GrossProfit': [month_data['GrossProfit'].sum()],
-                        'GrossMargin%': [month_data['GrossProfit'].sum() / month_data['Sales'].sum() if month_data['Sales'].sum() > 0 else 0],
-                        'Stock': [month_data['Stock'].mean()],
-                        'COGS': [month_data['COGS'].sum()]
-                    })
+                # Veriyi formatla
+                excel_data = pd.DataFrame()
+                
+                for month in range(1, 13):
+                    month_data = data[data['Month'] == month].copy()
                     
-                    month_data_with_total = pd.concat([month_data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 'GrossMargin%', 'Stock', 'COGS']], total_row], ignore_index=True)
-                    excel_2026 = pd.concat([excel_2026, month_data_with_total], ignore_index=True)
-            
-            # Excel dosyasına yaz
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # 2026 sheet'i ekle
-                excel_2026.to_excel(writer, sheet_name='2026_Tahmin', index=False)
+                    if len(month_data) > 0:
+                        # Toplam satırı ekle
+                        total_row = pd.DataFrame({
+                            'Ay': [f'Toplam {month}'],
+                            'Ana Grup': [''],
+                            'Satış': [month_data['Sales'].sum()],
+                            'Brüt Kar': [month_data['GrossProfit'].sum()],
+                            'Brüt Marj %': [month_data['GrossProfit'].sum() / month_data['Sales'].sum() if month_data['Sales'].sum() > 0 else 0],
+                            'Stok': [month_data['Stock'].mean()],
+                            'SMM': [month_data['COGS'].sum()]
+                        })
+                        
+                        month_formatted = month_data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 'GrossMargin%', 'Stock', 'COGS']].copy()
+                        month_formatted.columns = ['Ay', 'Ana Grup', 'Satış', 'Brüt Kar', 'Brüt Marj %', 'Stok', 'SMM']
+                        
+                        month_data_with_total = pd.concat([month_formatted, total_row], ignore_index=True)
+                        excel_data = pd.concat([excel_data, month_data_with_total], ignore_index=True)
                 
-                # Worksheet'i al ve formatla
-                workbook = writer.book
-                worksheet = workbook['2026_Tahmin']
-                
-                # Header formatı
-                header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-                header_font = Font(color="FFFFFF", bold=True)
-                
-                for cell in worksheet[1]:
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    cell.alignment = Alignment(horizontal='center')
+                # DataFrame'i worksheet'e yaz
+                for r_idx, row in enumerate(dataframe_to_rows(excel_data, index=False, header=True), 1):
+                    for c_idx, value in enumerate(row, 1):
+                        cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                        
+                        # Header formatı
+                        if r_idx == 1:
+                            cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                            cell.font = Font(color="FFFFFF", bold=True)
+                            cell.alignment = Alignment(horizontal='center')
+                        
+                        # Toplam satırları bold
+                        if isinstance(value, str) and value.startswith('Toplam'):
+                            cell.font = Font(bold=True)
+                            cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+                        
+                        # Number formatları
+                        if r_idx > 1:
+                            if c_idx in [3, 4, 6, 7]:  # Satış, Brüt Kar, Stok, SMM
+                                cell.number_format = '#,##0'
+                            elif c_idx == 5:  # Brüt Marj %
+                                cell.number_format = '0.00%'
                 
                 # Kolon genişlikleri
-                worksheet.column_dimensions['A'].width = 12
-                worksheet.column_dimensions['B'].width = 25
-                worksheet.column_dimensions['C'].width = 18
-                worksheet.column_dimensions['D'].width = 18
-                worksheet.column_dimensions['E'].width = 15
-                worksheet.column_dimensions['F'].width = 18
-                worksheet.column_dimensions['G'].width = 18
+                ws.column_dimensions['A'].width = 12
+                ws.column_dimensions['B'].width = 25
+                ws.column_dimensions['C'].width = 18
+                ws.column_dimensions['D'].width = 18
+                ws.column_dimensions['E'].width = 15
+                ws.column_dimensions['F'].width = 18
+                ws.column_dimensions['G'].width = 18
                 
-                # Number formatları
-                for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
-                    # Para formatı (Sales, GrossProfit, Stock, COGS)
-                    for col_idx in [2, 3, 5, 6]:  # 0-indexed: C, D, F, G
-                        if row[col_idx].value and isinstance(row[col_idx].value, (int, float)):
-                            row[col_idx].number_format = '#,##0'
-                    
-                    # Yüzde formatı (GrossMargin%)
-                    if row[4].value and isinstance(row[4].value, (int, float)):
-                        row[4].number_format = '0.00%'
+                # Başlık ekle
+                if year_name == "2025":
+                    ws.insert_rows(1)
+                    ws['A1'] = f'{year_name} (Aralık Tahmini İçerir)'
+                    ws['A1'].font = Font(size=14, bold=True, color="FF6B35")
+                    ws.merge_cells('A1:G1')
+                elif year_name == "2026":
+                    ws.insert_rows(1)
+                    ws['A1'] = f'{year_name} Tahmin'
+                    ws['A1'].font = Font(size=14, bold=True, color="1E88E5")
+                    ws.merge_cells('A1:G1')
             
+            # Excel'e kaydet
+            output = BytesIO()
+            wb.save(output)
             excel_data = output.getvalue()
             
             st.download_button(
-                label="📥 Bütçe Dosyası İndir (Excel)",
+                label="📥 Bütçe Dosyası İndir (3 Yıl - Excel)",
                 data=excel_data,
-                file_name="butce_2026_tahmin.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                file_name="butce_2024_2025_2026_tam.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
             )
             
-            st.success("✅ Excel dosyası hazır! İndir butonuna tıklayın.")
+            st.success("✅ Excel dosyası hazır! (2024 + 2025 Tamamlanmış + 2026 Tahmin)")
 
 # Footer
 st.markdown("---")
