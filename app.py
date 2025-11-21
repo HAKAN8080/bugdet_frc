@@ -311,13 +311,13 @@ with col1:
         
         # Gösterge belirleme
         if r2_pct > 80:
-            indicator = "🟢 Çok İyi"
+            indicator = "🟢 "
         elif r2_pct > 60:
-            indicator = "🟡 İyi"
+            indicator = "🟡 "
         elif r2_pct > 40:
-            indicator = "🟠 Orta"
+            indicator = "🟠 "
         else:
-            indicator = "🔴 Zayıf"
+            indicator = "🔴 "
         
         st.metric(
             label="Model Uyumu",
@@ -332,13 +332,13 @@ with col2:
         consistency_pct = quality_metrics['trend_consistency'] * 100
         
         if consistency_pct > 80:
-            indicator = "🟢 Çok İstikrarlı"
+            indicator = "🟢 "
         elif consistency_pct > 60:
-            indicator = "🟡 İstikrarlı"
+            indicator = "🟡 "
         elif consistency_pct > 40:
-            indicator = "🟠 Değişken"
+            indicator = "🟠 "
         else:
-            indicator = "🔴 Çok Değişken"
+            indicator = "🔴 "
         
         st.metric(
             label="Trend İstikrarı",
@@ -353,13 +353,13 @@ with col3:
         mape = quality_metrics['mape']
         
         if mape < 15:
-            indicator = "🟢 Düşük Hata"
-        elif mape < 25:
-            indicator = "🟡 Kabul Edilebilir"
+            indicator = "🟢"
+        elif mape < 25:    
+            indicator = "🟡"
         elif mape < 35:
-            indicator = "🟠 Yüksek Hata"
+            indicator = "🟠"
         else:
-            indicator = "🔴 Çok Yüksek Hata"
+            indicator = "🔴"
         
         st.metric(
             label="Tahmin Hatası",
