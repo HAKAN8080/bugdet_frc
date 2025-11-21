@@ -39,41 +39,40 @@ st.sidebar.header("📋 Tahmin Parametreleri")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Büyüme Hedefi")
-growth_input_type = st.sidebar.radio(
-    "Hedef Giriş Tipi",
-    ["Tüm Yıl İçin Tek Hedef", "Ay Bazında Hedef"],
+
+# Ay bazında hedef
+st.sidebar.markdown("### 📅 Ay Bazında Hedef")
+monthly_input_type = st.sidebar.radio(
+    "Ay Hedefi",
+    ["Tüm Aylar İçin Tek Hedef", "Her Ay Ayrı Hedef"],
     index=0,
-    help="Tek hedef veya her ay için ayrı hedef"
+    key="monthly_type"
 )
 
 monthly_growth_targets = {}
 
-if growth_input_type == "Tüm Yıl İçin Tek Hedef":
-    growth_param = st.sidebar.slider(
-        "Yıllık Satış Büyüme Hedefi (%)",
+if monthly_input_type == "Tüm Aylar İçin Tek Hedef":
+    monthly_default = st.sidebar.slider(
+        "Tüm Aylar İçin Büyüme Hedefi (%)",
         min_value=-20.0,
         max_value=50.0,
         value=15.0,
         step=1.0,
-        help="2026 yılı için hedeflenen satış büyümesi"
+        key="monthly_default"
     ) / 100
     
-    # Tüm aylar için aynı hedef
     for month in range(1, 13):
-        monthly_growth_targets[month] = growth_param
+        monthly_growth_targets[month] = monthly_default
     
 else:
-    st.sidebar.markdown("**Her Ay İçin Büyüme Hedefi (%):**")
     st.sidebar.caption("↓ Aşağı kaydırarak tüm ayları görebilirsiniz")
     
-    # Ay isimleri
     month_names = {
         1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan",
         5: "Mayıs", 6: "Haziran", 7: "Temmuz", 8: "Ağustos",
         9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
     }
     
-    # Her ay için slider
     for month in range(1, 13):
         monthly_growth_targets[month] = st.sidebar.slider(
             f"{month_names[month]} ({month})",
@@ -84,11 +83,65 @@ else:
             key=f"month_{month}"
         ) / 100
     
-    # Ortalama göster
     avg_monthly = sum(monthly_growth_targets.values()) / 12
-    st.sidebar.info(f"📊 Ortalama Hedef: %{avg_monthly*100:.1f}")
+    st.sidebar.info(f"📊 Ort. Aylık: %{avg_monthly*100:.1f}")
+
+# Ana grup bazında hedef
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🏪 Ana Grup Bazında Hedef")
+maingroup_input_type = st.sidebar.radio(
+    "Ana Grup Hedefi",
+    ["Tüm Gruplar İçin Tek Hedef", "Her Grup Ayrı Hedef"],
+    index=0,
+    key="maingroup_type"
+)
+
+maingroup_growth_targets = {}
+
+# Ana grupları yükle
+@st.cache_data
+def get_main_groups(forecaster):
+    return sorted(forecaster.data['MainGroup'].unique().tolist())
+
+if uploaded_file is not None:
+    main_groups = get_main_groups(forecaster)
     
-    growth_param = avg_monthly  # Genel hesaplamalar için ortalama kullan
+    if maingroup_input_type == "Tüm Gruplar İçin Tek Hedef":
+        maingroup_default = st.sidebar.slider(
+            "Tüm Gruplar İçin Büyüme Hedefi (%)",
+            min_value=-20.0,
+            max_value=50.0,
+            value=15.0,
+            step=1.0,
+            key="maingroup_default"
+        ) / 100
+        
+        for group in main_groups:
+            maingroup_growth_targets[group] = maingroup_default
+    
+    else:
+        st.sidebar.caption("↓ Aşağı kaydırarak tüm grupları görebilirsiniz")
+        
+        for group in main_groups:
+            maingroup_growth_targets[group] = st.sidebar.slider(
+                f"{group}",
+                min_value=-20.0,
+                max_value=50.0,
+                value=15.0,
+                step=1.0,
+                key=f"group_{group}"
+            ) / 100
+        
+        avg_maingroup = sum(maingroup_growth_targets.values()) / len(maingroup_growth_targets)
+        st.sidebar.info(f"📊 Ort. Ana Grup: %{avg_maingroup*100:.1f}")
+    
+    # Genel ortalama hesapla
+    growth_param = sum(monthly_growth_targets.values()) / 12
+else:
+    # Dosya yüklenmemiş, default değerler
+    growth_param = 0.15
+    for month in range(1, 13):
+        monthly_growth_targets[month] = 0.15
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📈 Karlılık Hedefi")
@@ -194,14 +247,18 @@ try:
             full_data = forecaster.get_full_data_with_forecast(
                 growth_param=growth_param,
                 margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_calc
+                stock_ratio_target=stock_ratio_calc,
+                monthly_growth_targets=monthly_growth_targets,
+                maingroup_growth_targets=maingroup_growth_targets
             )
         else:
             # Stok/SMM oranı seçildi
             full_data = forecaster.get_full_data_with_forecast(
                 growth_param=growth_param,
                 margin_improvement=margin_improvement,
-                stock_ratio_target=stock_ratio_target
+                stock_ratio_target=stock_ratio_target,
+                monthly_growth_targets=monthly_growth_targets,
+                maingroup_growth_targets=maingroup_growth_targets
             )
         
         summary = forecaster.get_summary_stats(full_data)
