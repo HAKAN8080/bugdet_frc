@@ -279,23 +279,29 @@ with col3:
     )
 
 with col4:
-    stock_2026 = summary[2026]['Avg_Stock']
-    stock_2025 = summary[2025]['Avg_Stock']
-    stock_change = ((stock_2026 - stock_2025) / stock_2025 * 100) if stock_2025 > 0 else 0
-    
     if stock_change_pct is not None:
+        # Stok tutar değişimi göster
+        stock_2026 = summary[2026]['Avg_Stock']
+        stock_2025 = summary[2025]['Avg_Stock']
+        stock_change = ((stock_2026 - stock_2025) / stock_2025 * 100) if stock_2025 > 0 else 0
+        
         st.metric(
             label="2026 Ort. Stok",
             value=f"₺{stock_2026:,.0f}",
             delta=f"%{stock_change:+.1f} vs 2025"
         )
     else:
-        stock_ratio_2026 = summary[2026]['Avg_Stock_COGS_Ratio']
+        # Haftalık Stok/SMM oranı göster
+        stock_weekly_2026 = summary[2026]['Avg_Stock_COGS_Weekly']
+        stock_weekly_2025 = summary[2025]['Avg_Stock_COGS_Weekly']
+        weekly_change = stock_weekly_2026 - stock_weekly_2025
+        
         st.metric(
-            label="2026 Stok/SMM Oranı",
-            value=f"{stock_ratio_2026:.2f}",
-            delta=f"Hedef: {stock_ratio_target:.2f}"
+            label="2026 Stok/SMM (Haftalık)",
+            value=f"{stock_weekly_2026:.2f} hafta",
+            delta=f"{weekly_change:+.2f} hafta vs 2025"
         )
+        st.caption("Stok / (Aylık SMM ÷ gün × 7)")
 
 st.markdown("---")
 
@@ -498,32 +504,129 @@ with tab3:
     st.dataframe(summary_table, use_container_width=True, hide_index=True)
 
 with tab4:
-    st.subheader("Detaylı Veri Tablosu")
+    st.subheader("Detaylı Veri Tablosu - Yan Yana Karşılaştırma")
     
-    selected_year = st.selectbox("Yıl Seçin", [2024, 2025, 2026])
+    # Ay seçimi
+    selected_month = st.selectbox("Ay Seçin", list(range(1, 13)), format_func=lambda x: f"{x}. Ay")
     
-    filtered_data = full_data[full_data['Year'] == selected_year].copy()
+    # Her yıl için veri al
+    data_2024 = full_data[(full_data['Year'] == 2024) & (full_data['Month'] == selected_month)].copy()
+    data_2025 = full_data[(full_data['Year'] == 2025) & (full_data['Month'] == selected_month)].copy()
+    data_2026 = full_data[(full_data['Year'] == 2026) & (full_data['Month'] == selected_month)].copy()
     
-    filtered_data['Sales'] = filtered_data['Sales'].apply(lambda x: f"₺{x:,.0f}")
-    filtered_data['GrossProfit'] = filtered_data['GrossProfit'].apply(lambda x: f"₺{x:,.0f}")
-    filtered_data['GrossMargin%'] = filtered_data['GrossMargin%'].apply(lambda x: f"%{x*100:.2f}")
-    filtered_data['Stock'] = filtered_data['Stock'].apply(lambda x: f"₺{x:,.0f}")
-    filtered_data['COGS'] = filtered_data['COGS'].apply(lambda x: f"₺{x:,.0f}")
-    filtered_data['Stock_COGS_Ratio'] = filtered_data['Stock_COGS_Ratio'].apply(lambda x: f"{x:.2f}")
+    # Aylık gün sayıları
+    days_in_month = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
+                     7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+    days = days_in_month[selected_month]
     
-    filtered_data = filtered_data.sort_values(['Month', 'MainGroup'])
-    
-    st.dataframe(
-        filtered_data[['Month', 'MainGroup', 'Sales', 'GrossProfit', 
-                      'GrossMargin%', 'Stock', 'COGS', 'Stock_COGS_Ratio']],
-        use_container_width=True,
-        hide_index=True
+    # MainGroup bazında birleştir
+    comparison = data_2024[['MainGroup', 'Sales', 'GrossMargin%', 'Stock', 'COGS']].rename(
+        columns={
+            'Sales': 'Satış_2024',
+            'GrossMargin%': 'BM%_2024',
+            'Stock': 'Stok_2024',
+            'COGS': 'SMM_2024'
+        }
     )
     
+    comparison = comparison.merge(
+        data_2025[['MainGroup', 'Sales', 'GrossMargin%', 'Stock', 'COGS']].rename(
+            columns={
+                'Sales': 'Satış_2025',
+                'GrossMargin%': 'BM%_2025',
+                'Stock': 'Stok_2025',
+                'COGS': 'SMM_2025'
+            }
+        ),
+        on='MainGroup',
+        how='outer'
+    )
+    
+    comparison = comparison.merge(
+        data_2026[['MainGroup', 'Sales', 'GrossMargin%', 'Stock', 'COGS']].rename(
+            columns={
+                'Sales': 'Satış_2026',
+                'GrossMargin%': 'BM%_2026',
+                'Stock': 'Stok_2026',
+                'COGS': 'SMM_2026'
+            }
+        ),
+        on='MainGroup',
+        how='outer'
+    )
+    
+    comparison = comparison.fillna(0)
+    
+    # Haftalık normalize - Stok/SMM Haftalık
+    comparison['Stok/SMM_Haftalık_2024'] = np.where(
+        comparison['SMM_2024'] > 0,
+        comparison['Stok_2024'] / ((comparison['SMM_2024'] / days) * 7),
+        0
+    )
+    comparison['Stok/SMM_Haftalık_2025'] = np.where(
+        comparison['SMM_2025'] > 0,
+        comparison['Stok_2025'] / ((comparison['SMM_2025'] / days) * 7),
+        0
+    )
+    comparison['Stok/SMM_Haftalık_2026'] = np.where(
+        comparison['SMM_2026'] > 0,
+        comparison['Stok_2026'] / ((comparison['SMM_2026'] / days) * 7),
+        0
+    )
+    
+    # Formatla - Gösterim için
+    display_df = comparison.copy()
+    
+    # Para formatı
+    for col in ['Satış_2024', 'Stok_2024', 'SMM_2024', 'Satış_2025', 'Stok_2025', 'SMM_2025', 
+                'Satış_2026', 'Stok_2026', 'SMM_2026']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].apply(lambda x: f"₺{x:,.0f}" if x > 0 else "-")
+    
+    # Yüzde formatı
+    for col in ['BM%_2024', 'BM%_2025', 'BM%_2026']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].apply(lambda x: f"%{x*100:.1f}" if x > 0 else "-")
+    
+    # Stok/SMM Haftalık formatı
+    for col in ['Stok/SMM_Haftalık_2024', 'Stok/SMM_Haftalık_2025', 'Stok/SMM_Haftalık_2026']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}" if x > 0 else "-")
+    
+    # Sütun sırası - Yan yana karşılaştırma
+    display_df = display_df[[
+        'MainGroup',
+        'Satış_2024', 'Satış_2025', 'Satış_2026',
+        'BM%_2024', 'BM%_2025', 'BM%_2026',
+        'Stok_2024', 'Stok_2025', 'Stok_2026',
+        'SMM_2024', 'SMM_2025', 'SMM_2026',
+        'Stok/SMM_Haftalık_2024', 'Stok/SMM_Haftalık_2025', 'Stok/SMM_Haftalık_2026'
+    ]]
+    
+    # Sütun isimlerini güzelleştir
+    display_df.columns = [
+        'Ana Grup',
+        'Satış 2024', 'Satış 2025', 'Satış 2026',
+        'BM% 2024', 'BM% 2025', 'BM% 2026',
+        'Stok 2024', 'Stok 2025', 'Stok 2026',
+        'SMM 2024', 'SMM 2025', 'SMM 2026',
+        'Stok/SMM Hft. 2024', 'Stok/SMM Hft. 2025', 'Stok/SMM Hft. 2026'
+    ]
+    
+    st.info(f"📅 {selected_month}. Ay ({days} gün) - Stok/SMM haftalık: (Stok / (SMM/{days})*7)")
+    
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
+    
+    # Excel export - ham veri
     st.download_button(
-        label="📥 Excel'e Aktar",
-        data=full_data.to_csv(index=False).encode('utf-8'),
-        file_name=f'budget_forecast_{selected_year}.csv',
+        label="📥 Excel'e Aktar (Ham Veri)",
+        data=comparison.to_csv(index=False).encode('utf-8'),
+        file_name=f'budget_comparison_month_{selected_month}.csv',
         mime='text/csv'
     )
 
