@@ -37,6 +37,36 @@ st.markdown('<p class="main-header">📊 2026 Satış Bütçe Tahmini Sistemi</p
 # Sidebar - Parametreler
 st.sidebar.header("📋 Tahmin Parametreleri")
 
+# File upload - EN BAŞTA OLMALI
+st.sidebar.markdown("---")
+st.sidebar.subheader("📂 Veri Yükleme")
+uploaded_file = st.sidebar.file_uploader(
+    "Excel Dosyası Yükle",
+    type=['xlsx'],
+    help="2024-2025 verilerini içeren Excel dosyası"
+)
+
+# Load data
+@st.cache_data
+def load_data(file_path):
+    forecaster = BudgetForecaster(file_path)
+    return forecaster
+
+# Veri yükleme kontrolü
+forecaster = None
+if uploaded_file is not None:
+    import tempfile
+    import os
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+        tmp_file.write(uploaded_file.getvalue())
+        tmp_path = tmp_file.name
+    
+    with st.spinner('Veri yükleniyor...'):
+        forecaster = load_data(tmp_path)
+    
+    os.unlink(tmp_path)
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Büyüme Hedefi")
 
@@ -100,10 +130,10 @@ maingroup_growth_targets = {}
 
 # Ana grupları yükle
 @st.cache_data
-def get_main_groups(forecaster):
-    return sorted(forecaster.data['MainGroup'].unique().tolist())
+def get_main_groups(forecaster_obj):
+    return sorted(forecaster_obj.data['MainGroup'].unique().tolist())
 
-if uploaded_file is not None:
+if forecaster is not None:
     main_groups = get_main_groups(forecaster)
     
     if maingroup_input_type == "Tüm Gruplar İçin Tek Hedef":
@@ -134,14 +164,13 @@ if uploaded_file is not None:
         
         avg_maingroup = sum(maingroup_growth_targets.values()) / len(maingroup_growth_targets)
         st.sidebar.info(f"📊 Ort. Ana Grup: %{avg_maingroup*100:.1f}")
-    
-    # Genel ortalama hesapla
-    growth_param = sum(monthly_growth_targets.values()) / 12
 else:
     # Dosya yüklenmemiş, default değerler
-    growth_param = 0.15
-    for month in range(1, 13):
-        monthly_growth_targets[month] = 0.15
+    st.sidebar.info("📤 Excel dosyası yüklendiğinde ana gruplar görünecek")
+    maingroup_input_type = "Tüm Gruplar İçin Tek Hedef"
+
+# Genel ortalama hesapla
+growth_param = sum(monthly_growth_targets.values()) / 12
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📈 Karlılık Hedefi")
@@ -195,41 +224,10 @@ forecast_method = st.sidebar.selectbox(
     index=0
 )
 
-# File upload
-st.sidebar.markdown("---")
-st.sidebar.subheader("📂 Veri Yükleme")
-uploaded_file = st.sidebar.file_uploader(
-    "Excel Dosyası Yükle",
-    type=['xlsx'],
-    help="2024-2025 verilerini içeren Excel dosyası"
-)
-
-# Load data
-@st.cache_data
-def load_data(file_path):
-    forecaster = BudgetForecaster(file_path)
-    return forecaster
-
 try:
-    if uploaded_file is not None:
-        # Geçici dosyaya kaydet
-        import tempfile
-        import os
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_path = tmp_file.name
-        
-        with st.spinner('Veri yükleniyor...'):
-            forecaster = load_data(tmp_path)
-        
-        # Geçici dosyayı sil
-        os.unlink(tmp_path)
-    else:
-        st.info("👆 Lütfen soldaki menüden Excel dosyanızı yükleyin.")
-        st.stop()
-    
-    # Tahmin yap
+    if forecaster is not None:
+        # Tahmin yap
+        with st.spinner('Tahmin hesaplanıyor...'):
     with st.spinner('Tahmin hesaplanıyor...'):
         # Stok hedefini belirle
         if stock_change_pct is not None:
@@ -566,6 +564,16 @@ try:
 except Exception as e:
     st.error(f"Bir hata oluştu: {str(e)}")
     st.exception(e)
+else:
+    # Dosya yüklenmemiş
+    st.info("👆 Lütfen soldaki menüden Excel dosyanızı yükleyin.")
+    st.markdown("""
+    ### Nasıl Kullanılır?
+    1. Sol taraftaki **"📂 Veri Yükleme"** bölümünden Excel dosyanızı yükleyin
+    2. **Büyüme hedeflerinizi** belirleyin (ay bazında ve/veya ana grup bazında)
+    3. **Karlılık ve stok hedeflerinizi** ayarlayın
+    4. Sistem otomatik olarak 2026 tahminini yapacak
+    """)
 
 # Footer
 st.markdown("---")
