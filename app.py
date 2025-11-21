@@ -300,8 +300,8 @@ with col4:
         )
         st.caption("Stok / (Aylık SMM ÷ gün × 7)")
 
-# İKİNCİ SATIR - Tahmin Kalite Metrikleri
-st.markdown("### 🎯 Tahmin Güvenilirlik Metrikleri")
+# İKİNCİ SATIR - Tahmin Kalite Metrikleri (Sadece Göstergeler)
+st.markdown("### 🎯 Tahmin Güvenilirlik Göstergeleri")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -309,63 +309,86 @@ with col1:
     if quality_metrics['r2_score'] is not None:
         r2_pct = quality_metrics['r2_score'] * 100
         
-        # Renk belirleme
+        # Gösterge belirleme
         if r2_pct > 80:
-            delta_color = "normal"
+            indicator = "🟢 Çok İyi"
         elif r2_pct > 60:
-            delta_color = "off"
+            indicator = "🟡 İyi"
+        elif r2_pct > 40:
+            indicator = "🟠 Orta"
         else:
-            delta_color = "inverse"
+            indicator = "🔴 Zayıf"
         
         st.metric(
-            label="Model Uyum Skoru (R²)",
-            value=f"%{r2_pct:.1f}",
-            help="2024-2025 trend tutarlılığı (100'e yakın = daha güvenilir)"
+            label="Model Uyumu",
+            value=indicator,
+            help="2024-2025 trend tutarlılığı"
         )
     else:
-        st.metric(label="Model Uyum Skoru", value="N/A")
+        st.metric(label="Model Uyumu", value="⚪ Hesaplanamadı")
 
 with col2:
     if quality_metrics['trend_consistency'] is not None:
         consistency_pct = quality_metrics['trend_consistency'] * 100
         
+        if consistency_pct > 80:
+            indicator = "🟢 Çok İstikrarlı"
+        elif consistency_pct > 60:
+            indicator = "🟡 İstikrarlı"
+        elif consistency_pct > 40:
+            indicator = "🟠 Değişken"
+        else:
+            indicator = "🔴 Çok Değişken"
+        
         st.metric(
-            label="Trend Tutarlılığı",
-            value=f"%{consistency_pct:.1f}",
-            help="Aylık büyüme oranlarının tutarlılığı (100'e yakın = daha istikrarlı)"
+            label="Trend İstikrarı",
+            value=indicator,
+            help="Aylık büyüme oranlarının tutarlılığı"
         )
     else:
-        st.metric(label="Trend Tutarlılığı", value="N/A")
+        st.metric(label="Trend İstikrarı", value="⚪ Hesaplanamadı")
 
 with col3:
     if quality_metrics['mape'] is not None:
+        mape = quality_metrics['mape']
+        
+        if mape < 15:
+            indicator = "🟢 Düşük Hata"
+        elif mape < 25:
+            indicator = "🟡 Kabul Edilebilir"
+        elif mape < 35:
+            indicator = "🟠 Yüksek Hata"
+        else:
+            indicator = "🔴 Çok Yüksek Hata"
+        
         st.metric(
-            label="Ortalama Hata Oranı",
-            value=f"%{quality_metrics['mape']:.1f}",
-            help="MAPE - Düşük değer = daha doğru tahmin"
+            label="Tahmin Hatası",
+            value=indicator,
+            help="Ortalama sapma oranı"
         )
     else:
-        st.metric(label="Ortalama Hata", value="N/A")
+        st.metric(label="Tahmin Hatası", value="⚪ Hesaplanamadı")
 
 with col4:
     confidence = quality_metrics['confidence_level']
     
-    # Emoji ve renk
+    # Genel değerlendirme
     if confidence == 'Yüksek':
-        emoji = "🟢"
+        overall = "🟢 Güvenilir"
     elif confidence == 'Orta':
-        emoji = "🟡"
+        overall = "🟡 Makul"
     else:
-        emoji = "🔴"
+        overall = "🟠 Dikkatli Kullan"
     
     st.metric(
-        label="Güven Seviyesi",
-        value=f"{emoji} {confidence}",
-        help="Genel tahmin güvenilirliği"
+        label="Genel Değerlendirme",
+        value=overall,
+        help="Tüm metriklerin ortalaması"
     )
     
+    # Organik büyümeyi göster (bu pozitif bir bilgi)
     if quality_metrics['avg_growth_2024_2025']:
-        st.caption(f"Organik büyüme: %{quality_metrics['avg_growth_2024_2025']:.1f}")
+        st.caption(f"📈 2024→2025 Büyüme: %{quality_metrics['avg_growth_2024_2025']:.1f}")
 
 st.markdown("---")
 
